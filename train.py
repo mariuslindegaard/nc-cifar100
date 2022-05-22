@@ -11,6 +11,7 @@ import sys
 import argparse
 import time
 from datetime import datetime
+import tqdm
 
 import numpy as np
 import torch
@@ -29,9 +30,9 @@ from utils import get_network, get_training_dataloader, get_test_dataloader, War
 
 def train(args, net, training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler=None):
 
-    start = time.time()
     net.train()
-    for batch_index, (images, labels) in enumerate(training_loader):
+    pbar_batch = tqdm.tqdm(training_loader, position=1, leave=False, ncols=75)
+    for batch_index, (images, labels) in enumerate(pbar_batch):
 
         if args.gpu:
             labels = labels.cuda()
@@ -52,12 +53,9 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
             if 'bias' in name:
                 writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
 
-        print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
+        pbar_batch.set_description('Loss: {:0.4f}\tLR: {:0.6f}'.format(
             loss.item(),
             optimizer.param_groups[0]['lr'],
-            epoch=epoch,
-            trained_samples=batch_index * args.b + len(images),
-            total_samples=len(training_loader.dataset)
         ))
 
         #update training loss for each iteration
@@ -71,12 +69,9 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
         attr = attr[1:]
         writer.add_histogram("{}/{}".format(layer, attr), param, epoch)
 
-    finish = time.time()
-
-    print('epoch {} training time consumed: {:.2f}s'.format(epoch, finish - start))
 
 @torch.no_grad()
-def eval_training(args, net, test_loader, training_loader, loss_function, epoch=0, tb_writer=None):
+def eval_training(args, net, test_loader, training_loader, loss_function, epoch=0, tb_writer=None, pbar=None):
 
     start = time.time()
     net.eval()
@@ -98,17 +93,23 @@ def eval_training(args, net, test_loader, training_loader, loss_function, epoch=
         correct += preds.eq(labels).sum()
 
     finish = time.time()
-    if args.gpu:
-        print('GPU INFO.....')
-        print(torch.cuda.memory_summary(), end='')
-    print('Evaluating Network.....')
-    print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
-        epoch,
-        test_loss / len(test_loader.dataset),
-        correct.float() / len(test_loader.dataset),
-        finish - start
-    ))
-    print()
+    if args.verbose:
+        if args.gpu:
+            print('GPU INFO.....')
+            print(torch.cuda.memory_summary(), end='')
+        print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
+            epoch,
+            test_loss / len(test_loader.dataset),
+            correct.float() / len(test_loader.dataset),
+            finish - start
+        ))
+        print()
+
+    if pbar:
+        pbar.set_description('Test: Avg. loss: {:.4G}, Acc.: {:.4f}'.format(
+            test_loss / len(test_loader.dataset),
+            correct.float() / len(test_loader.dataset),
+        ))
 
     #add informations to tensorboard
     if tb_writer:
@@ -181,7 +182,8 @@ def main(args):
             print('found best acc weights file:{}'.format(weights_path))
             print('load best training file to test acc...')
             net.load_state_dict(torch.load(weights_path))
-            best_acc = eval_training(tb=False)
+            best_acc = eval_training(args, net, cifar100_test_loader, cifar100_training_loader,
+                                     loss_function, epoch=0, tb_writer=None)
             print('best acc is {:0.2f}'.format(best_acc))
 
         recent_weights_file = most_recent_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
@@ -193,8 +195,8 @@ def main(args):
 
         resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
 
-
-    for epoch in range(1, settings.EPOCH + 1):
+    pbar_epoch = tqdm.tqdm(range(1, settings.EPOCH + 1), position=0, leave=True, ncols=75)
+    for epoch in pbar_epoch:
         if epoch > args.warm:
             train_scheduler.step(epoch)
 
@@ -205,22 +207,25 @@ def main(args):
         train(args, net, cifar100_training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler)
 
         acc = eval_training(args, net, training_loader=cifar100_training_loader, test_loader=cifar100_test_loader,
-                            loss_function=loss_function, epoch=epoch, tb_writer=writer)
+                            loss_function=loss_function, epoch=epoch, tb_writer=writer, pbar=pbar_epoch)
 
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
-            print('saving weights file to {}'.format(weights_path))
+            if args.verbose:
+                print('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
             best_acc = acc
             continue
 
         if not epoch % settings.SAVE_EPOCH:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='regular')
-            print('saving weights file to {}'.format(weights_path))
+            if args.verbose:
+                print('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
 
     writer.close()
+
 
 if __name__ == '__main__':
 
@@ -231,5 +236,6 @@ if __name__ == '__main__':
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+    parser.add_argument('-verbose', action='store_true', default=False, help='Print verbose debug')
     _args = parser.parse_args()
     main(_args)
