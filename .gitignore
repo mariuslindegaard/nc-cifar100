@@ -5,6 +5,7 @@ checkpoint
 # runs
 runs/squeezenet
 
+# >>> Vim ignores
 # Swap
 [._]*.s[a-v][a-z]
 !*.svg  # comment out if you don't need vector files
@@ -25,3 +26,7 @@ tags
 # Persistent undo
 [._]*.un~
 
+# <<< Vim ignores
+
+# PyCharm (JetBrains) ignore
+**/.idea
