@@ -3,6 +3,7 @@
 data
 checkpoint
 # runs
+runs/squeezenet
 
 # Swap
 [._]*.s[a-v][a-z]
