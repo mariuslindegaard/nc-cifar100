@@ -26,11 +26,12 @@ from conf import settings
 from utils import get_network, get_training_dataloader, get_test_dataloader, WarmUpLR, \
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
 
-def train(epoch):
+
+def train(args, net, training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler=None):
 
     start = time.time()
     net.train()
-    for batch_index, (images, labels) in enumerate(cifar100_training_loader):
+    for batch_index, (images, labels) in enumerate(training_loader):
 
         if args.gpu:
             labels = labels.cuda()
@@ -42,7 +43,7 @@ def train(epoch):
         loss.backward()
         optimizer.step()
 
-        n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
+        n_iter = (epoch - 1) * len(training_loader) + batch_index + 1
 
         last_layer = list(net.children())[-1]
         for name, para in last_layer.named_parameters():
@@ -56,7 +57,7 @@ def train(epoch):
             optimizer.param_groups[0]['lr'],
             epoch=epoch,
             trained_samples=batch_index * args.b + len(images),
-            total_samples=len(cifar100_training_loader.dataset)
+            total_samples=len(training_loader.dataset)
         ))
 
         #update training loss for each iteration
@@ -75,7 +76,7 @@ def train(epoch):
     print('epoch {} training time consumed: {:.2f}s'.format(epoch, finish - start))
 
 @torch.no_grad()
-def eval_training(epoch=0, tb=True):
+def eval_training(args, net, test_loader, training_loader, loss_function, epoch=0, tb_writer=None):
 
     start = time.time()
     net.eval()
@@ -83,7 +84,7 @@ def eval_training(epoch=0, tb=True):
     test_loss = 0.0 # cost function error
     correct = 0.0
 
-    for (images, labels) in cifar100_test_loader:
+    for (images, labels) in test_loader:
 
         if args.gpu:
             images = images.cuda()
@@ -103,29 +104,21 @@ def eval_training(epoch=0, tb=True):
     print('Evaluating Network.....')
     print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
         epoch,
-        test_loss / len(cifar100_test_loader.dataset),
-        correct.float() / len(cifar100_test_loader.dataset),
+        test_loss / len(test_loader.dataset),
+        correct.float() / len(test_loader.dataset),
         finish - start
     ))
     print()
 
     #add informations to tensorboard
-    if tb:
-        writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader.dataset), epoch)
-        writer.add_scalar('Test/Accuracy', correct.float() / len(cifar100_test_loader.dataset), epoch)
+    if tb_writer:
+        tb_writer.add_scalar('Test/Average loss', test_loss / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Accuracy', correct.float() / len(test_loader.dataset), epoch)
 
-    return correct.float() / len(cifar100_test_loader.dataset)
+    return correct.float() / len(test_loader.dataset)
 
-if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-net', type=str, required=True, help='net type')
-    parser.add_argument('-gpu', action='store_true', default=False, help='use gpu or not')
-    parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
-    parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
-    parser.add_argument('-resume', action='store_true', default=False, help='resume training')
-    args = parser.parse_args()
+def main(args):
 
     net = get_network(args)
 
@@ -209,8 +202,10 @@ if __name__ == '__main__':
             if epoch <= resume_epoch:
                 continue
 
-        train(epoch)
-        acc = eval_training(epoch)
+        train(args, net, cifar100_training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler)
+
+        acc = eval_training(args, net, training_loader=cifar100_training_loader, test_loader=cifar100_test_loader,
+                            loss_function=loss_function, epoch=epoch, tb_writer=writer)
 
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
@@ -226,3 +221,15 @@ if __name__ == '__main__':
             torch.save(net.state_dict(), weights_path)
 
     writer.close()
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-net', type=str, required=True, help='net type')
+    parser.add_argument('-gpu', action='store_true', default=False, help='use gpu or not')
+    parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
+    parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
+    parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
+    parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+    _args = parser.parse_args()
+    main(_args)
