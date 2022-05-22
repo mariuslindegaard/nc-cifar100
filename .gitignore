@@ -2,7 +2,7 @@
 **/__pycache__
 data
 checkpoint
-runs
+# runs
 
 # Swap
 [._]*.s[a-v][a-z]
