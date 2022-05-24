@@ -4,6 +4,8 @@ import torch.nn.functional as F
 
 from ForwardHookedModel import ForwardHookedModel
 
+import nc_utils
+
 import dataclasses
 from typing import Optional, Dict, Tuple, List, Callable, Hashable
 import warnings
@@ -42,8 +44,7 @@ class MultipleCriterions:
 
 
 class Criterions:
-    _epsilon = 1E-9  # TODO(marius): Make epsilon dynamic
-    _num_classes = 100
+    _epsilon = 1E-12  # TODO(marius): Make epsilon dynamic
     _min_required_samples_for_valid_loss = 4  # Should be at least 2
 
     @classmethod
@@ -74,12 +75,8 @@ class Criterions:
             _epsilon = cls._epsilon
 
         # Make targets one-hot if they are not already
-        if torch.max(targets) > 1:
-            num_classes = cls._num_classes
-            one_hot_targets = F.one_hot(targets, num_classes=num_classes)
-        else:
-            one_hot_targets = targets
-            num_classes = one_hot_targets.shape[-1]
+        one_hot_targets = nc_utils.get_one_hot(targets)
+        num_classes = one_hot_targets.shape[-1]
 
         # Calculate loss for each embedding
         # for weighting, (layer, activations) in zip(_cdnv_weighting, embeddings.items()):  # TODO(marius): Paralellizable, but probably little to gain...
@@ -117,7 +114,7 @@ class Criterions:
         mean_diffs = torch.cdist(class_mean, class_mean) ** 2
 
         # Calculate "class-distance normalized variance"
-        cdnv = var_sums / (2*mean_diffs + _epsilon)  # Epsilon to avoid div by 0
+        cdnv = var_sums / (2*mean_diffs + _epsilon)  # Epsilon to avoid div by 0  # TODO(marius): Try using max(2*mean_diffs, _epsilon) instead
 
         # Fill diagonal with 0s since we should not have any contribution from within class "cdnv"
         cdnv.fill_diagonal_(0)
