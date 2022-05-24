@@ -12,6 +12,7 @@ import argparse
 import time
 from datetime import datetime
 import tqdm
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -23,6 +24,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
+import nc_utils
 from conf import settings
 from utils import get_network, get_training_dataloader, get_test_dataloader, WarmUpLR, \
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
@@ -31,6 +33,9 @@ from Criterions import MultipleCriterions, Criterions
 
 
 def train(args, net, training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler=None):
+
+    embedding_class_sums = {}
+    class_nums = None
 
     net.train()
     pbar_batch = tqdm.tqdm(training_loader, position=1, leave=False, ncols=75)
@@ -61,10 +66,35 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
         ))
 
         #update training loss for each iteration
-        writer.add_scalar('Train/loss', loss.item(), n_iter)
+        writer.add_scalar('Train/loss_tot', loss.item(), n_iter)
+        writer.add_scalar('Train/loss_pred', loss_function.last_losses[1][0].item(), n_iter)
+        for layer_name, layer_loss in loss_function.last_losses[1][1].items():
+            writer.add_scalar('Train/loss_{}'.format('layer_name'), layer_loss.item(), n_iter)
 
         if epoch <= args.warm:
             warmup_scheduler.step()
+
+        # Sum embedding activations
+        # Log total number of class examples in this batch
+        one_hot_targets = nc_utils.get_one_hot(labels)
+        predictions, embeddings = outputs
+        batch_class_nums = torch.sum(one_hot_targets, dim=0)
+        if class_nums is None:
+            class_nums = torch.zeros_like(batch_class_nums)
+        class_nums += batch_class_nums.detach()
+        assert batch_class_nums.shape == (nc_utils._NUM_CLASSES,), \
+            f"Batch targets have an unexpected shape. Expected ({nc_utils._NUM_CLASSES},)" \
+            f"but got {batch_class_nums.shape}."
+
+        # Get class activation sums
+        for layer_name in embeddings.keys():
+            batch_layer_class_means = (
+                    one_hot_targets.t().float() @ embeddings[layer_name].transpose(0, -2)
+            ).transpose(0, -2).detach()  # Sum over class (one-hot)
+
+            if layer_name not in embedding_class_sums:
+                embedding_class_sums[layer_name] = torch.zeros_like(batch_layer_class_means)
+            embedding_class_sums[layer_name] += batch_layer_class_means
 
     for name, param in net.named_parameters():
         layer, attr = os.path.splitext(name)
@@ -72,13 +102,27 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
         writer.add_histogram("{}/{}".format(layer, attr), param, epoch)
 
 
+    # for layer_name, embedding_sums in embedding_class_sums.items():
+        # embedding_class_sums[layer_name] = (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)
+    embedding_class_means = {layer_name: (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)
+                             for layer_name, embedding_sums in embedding_class_sums.items()}
+
+    return embedding_class_means
+
+
 @torch.no_grad()
-def eval_training(args, net, test_loader, training_loader, loss_function, epoch=0, tb_writer=None, pbar=None):
+def eval_training(args, net, test_loader, training_loader, loss_function,
+                  epoch=0, tb_writer=None, pbar=None, embedding_class_means=None):
+
+    if not embedding_class_means:
+        embedding_class_means = {}
 
     start = time.time()
     net.eval()
 
     test_loss = 0.0 # cost function error
+    pred_loss = 0.0
+    embedding_losses = defaultdict(float)
     correct = 0.0
 
     for (images, labels) in test_loader:
@@ -91,6 +135,10 @@ def eval_training(args, net, test_loader, training_loader, loss_function, epoch=
         loss = loss_function(outputs, labels)
 
         test_loss += loss.item()
+        pred_loss += loss_function.last_losses[1][0].item()
+        for layer_name, layer_loss in loss_function.last_losses[1][1].items():
+            embedding_losses[layer_name] += layer_loss.item()
+
         if type(outputs) is tuple:
             assert len(outputs) == 2 and isinstance(outputs[1], dict)
             _, preds = outputs[0].max(1)
@@ -119,8 +167,21 @@ def eval_training(args, net, test_loader, training_loader, loss_function, epoch=
 
     #add informations to tensorboard
     if tb_writer:
-        tb_writer.add_scalar('Test/Average loss', test_loss / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Avg. loss_tot', test_loss / len(test_loader.dataset), epoch)
         tb_writer.add_scalar('Test/Accuracy', correct.float() / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Avg. loss_pred', pred_loss / len(test_loader.dataset), epoch)
+        for layer_name, layer_loss in embedding_losses.items():
+            tb_writer.add_scalar('Test/Avg. loss_{}'.format('layer_name'), layer_loss / len(test_loader.dataset), epoch)
+
+        # Get NCC accuracies
+        train_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, training_loader)
+        test_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, test_loader)
+
+        # Write embeddings to tensorboard
+        for layer_name in embedding_losses.keys():
+            tb_writer.add_scalar('Test/Avg. loss_{}'.format(layer_name), embedding_losses[layer_name] / len(test_loader.dataset), epoch)
+            tb_writer.add_scalar('Test/NCC_acc_{}'.format(layer_name), test_ncc_acc[layer_name], epoch)
+            tb_writer.add_scalar('Train/NCC_acc_{}'.format(layer_name), train_ncc_acc[layer_name], epoch)
 
     return correct.float() / len(test_loader.dataset)
 
@@ -216,10 +277,11 @@ def main(args):
             if epoch <= resume_epoch:
                 continue
 
-        train(args, net, cifar100_training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler)
+        embedding_class_means = train(args, net, cifar100_training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler)
 
         acc = eval_training(args, net, training_loader=cifar100_training_loader, test_loader=cifar100_test_loader,
-                            loss_function=loss_function, epoch=epoch, tb_writer=writer, pbar=pbar_epoch)
+                            loss_function=loss_function, epoch=epoch, tb_writer=writer,
+                            pbar=pbar_epoch, embedding_class_means=embedding_class_means)
 
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
