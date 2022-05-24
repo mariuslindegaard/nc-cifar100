@@ -160,6 +160,8 @@ def get_network(args):
     if args.gpu: #use_gpu
         net = net.cuda()
 
+    print(net)
+
     return net
 
 

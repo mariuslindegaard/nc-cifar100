@@ -1,48 +1,35 @@
 import torch
-import torch.functional as F
 import torch.nn as nn
 import torchvision.models as models
 
-from typing import Dict, Optional, Hashable
+from typing import Dict, Optional, Hashable, Tuple, Set
 from collections import OrderedDict
-
-
-class HookedOutput(torch.Tensor):
-    """Output of a ForwardHookedModel with "normal" model outputs as well as a self.hook_outputs."""
-    hook_outputs: Dict[Hashable, torch.Tensor]
-
-    def __init__(self, out: torch.Tensor, hook_outputs: Dict[Hashable, torch.Tensor]):
-        super().__init__(out)
-        self.hook_outputs = hook_outputs
 
 
 class ForwardHookedModel(nn.Module):
     """Wrapper around a model with intermediate layer forward hooks"""
-    def __init__(self, base_model: nn.Module, output_layers: Optional[Dict[Hashable, float]] = None,
-                 prediction_loss_weight: float = 1, *args):
+    def __init__(self, base_model: nn.Module, output_layers: Set[Hashable] = set(), *args, **kwargs):
         """Wrap a base model with forward hooks for output.
 
-        Forward call returns a HookedOuput.
+        Forward call returns the normal output, and hooked output in a tuple.
 
         :param base_model: Base model to wrap
-        :param output_layers: Layers for which to create forward hooks. Dict of identifier: loss_weight. Default: None
-            (i.e. {'layer_name': 0.01, 'other_layer_name': 0.2})
+        :param output_layers: Layers for which to create forward hooks. Set of identifiers. Default: set()
         :param prediction_loss_weight: Weighting of ordinary output loss. Default: 1
         :param args: Args to pass to nn.Module, if any
         """
         # Init and store base model
-        super().__init__(*args)
+        super().__init__(*args, **kwargs)
         self.base_model = base_model
 
         # Parameters
-        self.prediction_loss_weight: float = prediction_loss_weight
-        self.output_layers_weights_dict: Dict[Hashable, float] = output_layers if output_layers is not None else {}
+        self.output_layers: Set[Hashable] = output_layers
         self.hook_outputs: Dict[Hashable, torch.Tensor] = OrderedDict()
         self.fwd_hooks = []
 
         # Register hooks
         for i, layer_name in enumerate(list(self.base_model._modules.keys())):  # TODO(marius): Iterate over internal layers too, not just top level
-            if i in self.output_layers_weights_dict.keys() or layer_name in self.output_layers_weights_dict.keys():
+            if i in self.output_layers or layer_name in self.output_layers:
                 self.fwd_hooks.append(
                     getattr(self.base_model, layer_name).register_forward_hook(self.forward_hook(layer_name))
                 )
@@ -52,9 +39,9 @@ class ForwardHookedModel(nn.Module):
             self.hook_outputs[layer_id] = outputs
         return hook
 
-    def forward(self, x) -> HookedOutput:
+    def forward(self, x) -> Tuple[torch.Tensor, Dict[Hashable, torch.Tensor]]:
         out = self.base_model(x)
-        return HookedOutput(out, self.hook_outputs)
+        return out, self.hook_outputs
 
 
 def _test():
