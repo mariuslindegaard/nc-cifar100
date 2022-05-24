@@ -26,6 +26,8 @@ from torch.utils.tensorboard import SummaryWriter
 from conf import settings
 from utils import get_network, get_training_dataloader, get_test_dataloader, WarmUpLR, \
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
+from ForwardHookedModel import ForwardHookedModel
+from Criterions import MultipleCriterions, Criterions
 
 
 def train(args, net, training_loader, loss_function, optimizer, epoch, writer, warmup_scheduler=None):
@@ -89,7 +91,11 @@ def eval_training(args, net, test_loader, training_loader, loss_function, epoch=
         loss = loss_function(outputs, labels)
 
         test_loss += loss.item()
-        _, preds = outputs.max(1)
+        if type(outputs) is tuple:
+            assert len(outputs) == 2 and isinstance(outputs[1], dict)
+            _, preds = outputs[0].max(1)
+        else:
+            _, preds = outputs.max(1)
         correct += preds.eq(labels).sum()
 
     finish = time.time()
@@ -121,7 +127,7 @@ def eval_training(args, net, test_loader, training_loader, loss_function, epoch=
 
 def main(args):
 
-    net = get_network(args)
+    net = ForwardHookedModel(get_network(args), args.nc_loss)
 
     #data preprocessing:
     cifar100_training_loader = get_training_dataloader(
@@ -140,21 +146,27 @@ def main(args):
         shuffle=True
     )
 
-    loss_function = nn.CrossEntropyLoss()
+    pred_loss_func = nn.CrossEntropyLoss()
+    loss_function: MultipleCriterions = Criterions.get_CDNV_criterion(args.nc_loss, prediction_loss=pred_loss_func, prediction_weighting=1)
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
 
+    subfolder = os.path.join(args.net,
+        "_".join(['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()])
+        if args.nc_loss else 'base'
+    )
+
     if args.resume:
-        recent_folder = most_recent_folder(os.path.join(settings.CHECKPOINT_PATH, args.net), fmt=settings.DATE_FORMAT)
+        recent_folder = most_recent_folder(os.path.join(settings.CHECKPOINT_PATH, subfolder), fmt=settings.DATE_FORMAT)
         if not recent_folder:
             raise Exception('no recent folder were found')
 
-        checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder)
+        checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder)
 
     else:
-        checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, settings.TIME_NOW)
+        checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, subfolder, settings.TIME_NOW)
 
     #use tensorboard
     if not os.path.exists(settings.LOG_DIR):
@@ -163,11 +175,11 @@ def main(args):
     #since tensorboard can't overwrite old values
     #so the only way is to create a new tensorboard log
     writer = SummaryWriter(log_dir=os.path.join(
-            settings.LOG_DIR, args.net, settings.TIME_NOW))
+            settings.LOG_DIR, subfolder, settings.TIME_NOW))
     input_tensor = torch.Tensor(1, 3, 32, 32)
     if args.gpu:
         input_tensor = input_tensor.cuda()
-    writer.add_graph(net, input_tensor)
+    writer.add_graph(net.base_model, input_tensor)
 
     #create checkpoint folder to save model
     if not os.path.exists(checkpoint_path):
@@ -176,9 +188,9 @@ def main(args):
 
     best_acc = 0.0
     if args.resume:
-        best_weights = best_acc_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
+        best_weights = best_acc_weights(os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder))
         if best_weights:
-            weights_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder, best_weights)
+            weights_path = os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder, best_weights)
             print('found best acc weights file:{}'.format(weights_path))
             print('load best training file to test acc...')
             net.load_state_dict(torch.load(weights_path))
@@ -186,14 +198,14 @@ def main(args):
                                      loss_function, epoch=0, tb_writer=None)
             print('best acc is {:0.2f}'.format(best_acc))
 
-        recent_weights_file = most_recent_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
+        recent_weights_file = most_recent_weights(os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder))
         if not recent_weights_file:
             raise Exception('no recent weights file were found')
-        weights_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder, recent_weights_file)
+        weights_path = os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder, recent_weights_file)
         print('loading weights file {} to resume training.....'.format(weights_path))
         net.load_state_dict(torch.load(weights_path))
 
-        resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
+        resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder))
 
     pbar_epoch = tqdm.tqdm(range(1, settings.EPOCH + 1), position=0, leave=True, ncols=75)
     for epoch in pbar_epoch:
@@ -232,10 +244,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-net', type=str, required=True, help='net type')
     parser.add_argument('-gpu', action='store_true', default=False, help='use gpu or not')
-    parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
+    # parser.add_argument('-b', type=int, default=256, help='batch size for dataloader')
+    parser.add_argument('-b', type=int, default=2048, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-verbose', action='store_true', default=False, help='Print verbose debug')
+    parser.add_argument('-nc_loss', action='append', nargs=2, default=[], help='Layers to do nc-loss on. Takes "layername loss_factor"')
     _args = parser.parse_args()
+    _args.nc_loss = {layername: float(loss_weight) for layername, loss_weight in _args.nc_loss}
     main(_args)
