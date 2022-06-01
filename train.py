@@ -196,7 +196,8 @@ def main(args):
         settings.CIFAR100_TRAIN_STD,
         num_workers=4,
         batch_size=args.b,
-        shuffle=True
+        shuffle=True,
+        cifar10=args.cifar10
     )
 
     cifar100_test_loader = get_test_dataloader(
@@ -204,7 +205,8 @@ def main(args):
         settings.CIFAR100_TRAIN_STD,
         num_workers=4,
         batch_size=args.b,
-        shuffle=True
+        shuffle=True,
+        cifar10=args.cifar10
     )
 
     pred_loss_func = nn.CrossEntropyLoss()
@@ -215,8 +217,11 @@ def main(args):
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
 
     subfolder = os.path.join(args.net,
-        "_".join(['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()])
-        if args.nc_loss else 'base'
+        "_".join(
+            ['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
+            + ['b{}'.format(str(args.b))] + (['c10'] if args.cifar10 else [])
+        )
+        # if args.nc_loss else 'base'
     )
 
     if args.resume:
@@ -313,6 +318,7 @@ if __name__ == '__main__':
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-verbose', action='store_true', default=False, help='Print verbose debug')
     parser.add_argument('-nc_loss', action='append', nargs=2, default=[], help='Layers to do nc-loss on. Takes "layername loss_factor"')
+    parser.add_argument('-cifar10', action='store_true', default=False, help='Use cifar10 instead of cifar100')
     _args = parser.parse_args()
     _args.nc_loss = {layername: float(loss_weight) for layername, loss_weight in _args.nc_loss}
     main(_args)
