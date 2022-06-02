@@ -2,6 +2,9 @@ import train
 import dataclasses as dc
 from typing import Dict
 
+import warnings
+import time
+
 import argparse
 
 @dc.dataclass
@@ -20,6 +23,8 @@ class Args:
 
 def main(debug=True):
     if debug:
+        warnings.warn(64*"-" + "\n   RUNNING IN DEBUG MODE\n" + 64*"-")
+        time.sleep(1)
         net = 'squeezenet'
         nc_layers = ('fire7', 'fire9')
     else:
@@ -48,6 +53,6 @@ def main(debug=True):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-debug', type=bool, required=True, help="Whether to do debug or not")
+    parser.add_argument('-debug', action='store_true', default=False, help="Whether to do debug or not")
     _args = parser.parse_args()
     main(debug=_args.debug)
