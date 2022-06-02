@@ -104,7 +104,8 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
 
     # for layer_name, embedding_sums in embedding_class_sums.items():
         # embedding_class_sums[layer_name] = (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)
-    embedding_class_means = {layer_name: (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)
+    valid_class_means = class_nums >= 1
+    embedding_class_means = {layer_name: (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)[valid_class_means]
                              for layer_name, embedding_sums in embedding_class_sums.items()}
 
     return embedding_class_means
@@ -167,11 +168,9 @@ def eval_training(args, net, test_loader, training_loader, loss_function,
 
     #add informations to tensorboard
     if tb_writer:
-        tb_writer.add_scalar('Test/Avg. loss_tot', test_loss / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Loss_avg tot', test_loss / len(test_loader.dataset), epoch)
         tb_writer.add_scalar('Test/Accuracy', correct.float() / len(test_loader.dataset), epoch)
-        tb_writer.add_scalar('Test/Avg. loss_pred', pred_loss / len(test_loader.dataset), epoch)
-        for layer_name, layer_loss in embedding_losses.items():
-            tb_writer.add_scalar('Test/Avg. loss_{}'.format(layer_name), layer_loss / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Loss_avg pred', pred_loss / len(test_loader.dataset), epoch)
 
         # Get NCC accuracies
         train_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, training_loader)
@@ -179,9 +178,9 @@ def eval_training(args, net, test_loader, training_loader, loss_function,
 
         # Write embeddings to tensorboard
         for layer_name in embedding_losses.keys():
-            tb_writer.add_scalar('Test/Avg. loss_{}'.format(layer_name), embedding_losses[layer_name] / len(test_loader.dataset), epoch)
-            tb_writer.add_scalar('Test/NCC_acc_{}'.format(layer_name), test_ncc_acc[layer_name], epoch)
-            tb_writer.add_scalar('Train/NCC_acc_{}'.format(layer_name), train_ncc_acc[layer_name], epoch)
+            tb_writer.add_scalar('Test/Loss_avg {}'.format(layer_name), embedding_losses[layer_name] / len(test_loader.dataset), epoch)
+            tb_writer.add_scalar('Test/NCC_acc {}'.format(layer_name), test_ncc_acc[layer_name], epoch)
+            tb_writer.add_scalar('Train/NCC_acc {}'.format(layer_name), train_ncc_acc[layer_name], epoch)
 
     return correct.float() / len(test_loader.dataset)
 
@@ -218,8 +217,9 @@ def main(args):
 
     subfolder = os.path.join(args.net,
         "_".join(
-            ['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
-            + ['b{}'.format(str(args.b))] + (['c10'] if args.cifar10 else [])
+            ['c10'] if args.cifar10 else []
+            + ['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
+            + ['b{}'.format(str(args.b))]
         )
         # if args.nc_loss else 'base'
     )
