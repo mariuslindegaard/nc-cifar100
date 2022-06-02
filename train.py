@@ -69,7 +69,7 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
         writer.add_scalar('Train/loss_tot', loss.item(), n_iter)
         writer.add_scalar('Train/loss_pred', loss_function.last_losses[1][0].item(), n_iter)
         for layer_name, layer_loss in loss_function.last_losses[1][1].items():
-            writer.add_scalar('Train/loss_{}'.format('layer_name'), layer_loss.item(), n_iter)
+            writer.add_scalar('Train/loss_{}'.format(layer_name), layer_loss.item(), n_iter)
 
         if epoch <= args.warm:
             warmup_scheduler.step()
@@ -104,7 +104,8 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
 
     # for layer_name, embedding_sums in embedding_class_sums.items():
         # embedding_class_sums[layer_name] = (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)
-    embedding_class_means = {layer_name: (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)
+    valid_class_means = class_nums >= 1
+    embedding_class_means = {layer_name: (embedding_sums.transpose(0, -1) / class_nums).transpose(0, -1)[valid_class_means]
                              for layer_name, embedding_sums in embedding_class_sums.items()}
 
     return embedding_class_means
@@ -167,11 +168,9 @@ def eval_training(args, net, test_loader, training_loader, loss_function,
 
     #add informations to tensorboard
     if tb_writer:
-        tb_writer.add_scalar('Test/Avg. loss_tot', test_loss / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Loss_avg tot', test_loss / len(test_loader.dataset), epoch)
         tb_writer.add_scalar('Test/Accuracy', correct.float() / len(test_loader.dataset), epoch)
-        tb_writer.add_scalar('Test/Avg. loss_pred', pred_loss / len(test_loader.dataset), epoch)
-        for layer_name, layer_loss in embedding_losses.items():
-            tb_writer.add_scalar('Test/Avg. loss_{}'.format('layer_name'), layer_loss / len(test_loader.dataset), epoch)
+        tb_writer.add_scalar('Test/Loss_avg pred', pred_loss / len(test_loader.dataset), epoch)
 
         # Get NCC accuracies
         train_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, training_loader)
@@ -179,9 +178,9 @@ def eval_training(args, net, test_loader, training_loader, loss_function,
 
         # Write embeddings to tensorboard
         for layer_name in embedding_losses.keys():
-            tb_writer.add_scalar('Test/Avg. loss_{}'.format(layer_name), embedding_losses[layer_name] / len(test_loader.dataset), epoch)
-            tb_writer.add_scalar('Test/NCC_acc_{}'.format(layer_name), test_ncc_acc[layer_name], epoch)
-            tb_writer.add_scalar('Train/NCC_acc_{}'.format(layer_name), train_ncc_acc[layer_name], epoch)
+            tb_writer.add_scalar('Test/Loss_avg {}'.format(layer_name), embedding_losses[layer_name] / len(test_loader.dataset), epoch)
+            tb_writer.add_scalar('Test/NCC_acc {}'.format(layer_name), test_ncc_acc[layer_name], epoch)
+            tb_writer.add_scalar('Train/NCC_acc {}'.format(layer_name), train_ncc_acc[layer_name], epoch)
 
     return correct.float() / len(test_loader.dataset)
 
@@ -196,7 +195,8 @@ def main(args):
         settings.CIFAR100_TRAIN_STD,
         num_workers=4,
         batch_size=args.b,
-        shuffle=True
+        shuffle=True,
+        cifar10=args.cifar10
     )
 
     cifar100_test_loader = get_test_dataloader(
@@ -204,19 +204,25 @@ def main(args):
         settings.CIFAR100_TRAIN_STD,
         num_workers=4,
         batch_size=args.b,
-        shuffle=True
+        shuffle=True,
+        cifar10=args.cifar10
     )
 
     pred_loss_func = nn.CrossEntropyLoss()
-    loss_function: MultipleCriterions = Criterions.get_CDNV_criterion(args.nc_loss, prediction_loss=pred_loss_func, prediction_weighting=1)
+    loss_function: MultipleCriterions = Criterions.get_CDNV_criterion(args.nc_loss, prediction_loss=pred_loss_func, prediction_weighting=args.pred_loss)
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
 
     subfolder = os.path.join(args.net,
-        "_".join(['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()])
-        if args.nc_loss else 'base'
+        "_".join(
+            (['c10'] if args.cifar10 else [])
+            + ['predl_{}'.format(args.pred_loss)]
+            + ['ncl_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
+            + ['b{}'.format(str(args.b))]
+        )
+        # if args.nc_loss else 'base'
     )
 
     if args.resume:
@@ -313,6 +319,8 @@ if __name__ == '__main__':
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-verbose', action='store_true', default=False, help='Print verbose debug')
     parser.add_argument('-nc_loss', action='append', nargs=2, default=[], help='Layers to do nc-loss on. Takes "layername loss_factor"')
+    parser.add_argument('-pred_loss', type=float, default=1, help='Weighting of prediction loss.')
+    parser.add_argument('-cifar10', action='store_true', default=False, help='Use cifar10 instead of cifar100')
     _args = parser.parse_args()
     _args.nc_loss = {layername: float(loss_weight) for layername, loss_weight in _args.nc_loss}
     main(_args)
