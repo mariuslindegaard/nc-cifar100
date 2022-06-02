@@ -209,7 +209,7 @@ def main(args):
     )
 
     pred_loss_func = nn.CrossEntropyLoss()
-    loss_function: MultipleCriterions = Criterions.get_CDNV_criterion(args.nc_loss, prediction_loss=pred_loss_func, prediction_weighting=1)
+    loss_function: MultipleCriterions = Criterions.get_CDNV_criterion(args.nc_loss, prediction_loss=pred_loss_func, prediction_weighting=args.pred_loss)
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
@@ -217,8 +217,9 @@ def main(args):
 
     subfolder = os.path.join(args.net,
         "_".join(
-            ['c10'] if args.cifar10 else []
-            + ['nc_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
+            (['c10'] if args.cifar10 else [])
+            + ['predl_{}'.format(args.pred_loss)]
+            + ['ncl_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
             + ['b{}'.format(str(args.b))]
         )
         # if args.nc_loss else 'base'
@@ -318,6 +319,7 @@ if __name__ == '__main__':
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-verbose', action='store_true', default=False, help='Print verbose debug')
     parser.add_argument('-nc_loss', action='append', nargs=2, default=[], help='Layers to do nc-loss on. Takes "layername loss_factor"')
+    parser.add_argument('-pred_loss', type=float, default=1, help='Weighting of prediction loss.')
     parser.add_argument('-cifar10', action='store_true', default=False, help='Use cifar10 instead of cifar100')
     _args = parser.parse_args()
     _args.nc_loss = {layername: float(loss_weight) for layername, loss_weight in _args.nc_loss}
