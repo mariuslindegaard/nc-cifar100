@@ -69,7 +69,7 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
         writer.add_scalar('Train/loss_tot', loss.item(), n_iter)
         writer.add_scalar('Train/loss_pred', loss_function.last_losses[1][0].item(), n_iter)
         for layer_name, layer_loss in loss_function.last_losses[1][1].items():
-            writer.add_scalar('Train/loss_{}'.format('layer_name'), layer_loss.item(), n_iter)
+            writer.add_scalar('Train/loss_{}'.format(layer_name), layer_loss.item(), n_iter)
 
         if epoch <= args.warm:
             warmup_scheduler.step()
@@ -171,7 +171,7 @@ def eval_training(args, net, test_loader, training_loader, loss_function,
         tb_writer.add_scalar('Test/Accuracy', correct.float() / len(test_loader.dataset), epoch)
         tb_writer.add_scalar('Test/Avg. loss_pred', pred_loss / len(test_loader.dataset), epoch)
         for layer_name, layer_loss in embedding_losses.items():
-            tb_writer.add_scalar('Test/Avg. loss_{}'.format('layer_name'), layer_loss / len(test_loader.dataset), epoch)
+            tb_writer.add_scalar('Test/Avg. loss_{}'.format(layer_name), layer_loss / len(test_loader.dataset), epoch)
 
         # Get NCC accuracies
         train_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, training_loader)
