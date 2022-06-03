@@ -114,7 +114,7 @@ class Criterions:
         mean_diffs = torch.cdist(class_mean, class_mean) ** 2
 
         # Calculate "class-distance normalized variance"
-        cdnv = var_sums / (2*mean_diffs + _epsilon)  # Epsilon to avoid div by 0  # TODO(marius): Try using max(2*mean_diffs, _epsilon) instead
+        cdnv = var_sums / torch.clamp(2*mean_diffs, min=_epsilon)  # Epsilon to avoid div by 0  # TODO(marius): Try using max(2*mean_diffs, _epsilon) instead
 
         # Fill diagonal with 0s since we should not have any contribution from within class "cdnv"
         cdnv.fill_diagonal_(0)
