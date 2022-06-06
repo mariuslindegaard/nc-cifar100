@@ -31,7 +31,7 @@ def main(debug=True):
         net = 'resnet18'
         nc_layers = ('avg_pool',)
 
-    nc_loss_factors = (0, 0.001, 0.01, 0.1, 1)
+    nc_loss_factors = (0, 0.03, 0.01, 0.003, 0.001)
 
     args = Args(net=net, gpu=True)
     print("Base args: ")
@@ -39,16 +39,21 @@ def main(debug=True):
     print("NC layers: ", nc_layers)
     print("NC loss factors: ", nc_loss_factors)
 
-    for loss_factor in nc_loss_factors:
-        print("-"*48 + "\nAll loss factors: {}\n".format(nc_loss_factors)
-              + "Starting training with NC loss factor {}\n".format(loss_factor) + "-"*48)
-        args.nc_loss = {layer_name: loss_factor for layer_name in nc_layers}
-        if loss_factor > 0:
-            args.pred_loss = 0
-        else:
-            args.pred_loss = 1
+    for use_cifar10 in (False, True):
+        args.cifar10 = use_cifar10
+        for prediction_loss_factor in (1E-12, 0.3, 1):
+            args.pred_loss = prediction_loss_factor
+            for loss_factor in nc_loss_factors:
+                if loss_factor == 0 and prediction_loss_factor =< 1E-10:
+                    continue
 
-        train.main(args=args)
+                print("-"*64 + "\nAll loss factors: {}\n".format(nc_loss_factors)
+                      + "Starting training with NC loss factor "
+                      + "{}, cifar{}, predloss {}\n".format(loss_factor, 10 if args.cifar10 else 100, prediction_loss_factor) + "-"*64)
+
+                args.nc_loss = {layer_name: loss_factor for layer_name in nc_layers}
+
+                train.main(args=args)
 
 
 if __name__ == '__main__':
