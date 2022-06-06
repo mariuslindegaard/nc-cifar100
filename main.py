@@ -44,7 +44,7 @@ def main(debug=True):
         for prediction_loss_factor in (1E-12, 0.3, 1):
             args.pred_loss = prediction_loss_factor
             for loss_factor in nc_loss_factors:
-                if loss_factor == 0 and prediction_loss_factor =< 1E-10:
+                if loss_factor == 0 and prediction_loss_factor <= 1E-10:
                     continue
 
                 print("-"*64 + "\nAll loss factors: {}\n".format(nc_loss_factors)
