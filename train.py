@@ -216,11 +216,12 @@ def main(args):
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
 
     subfolder = os.path.join(args.net,
-        "_".join(
+        "-".join(
             (['c10'] if args.cifar10 else [])
             + ['predl_{}'.format(args.pred_loss)]
             + ['ncl_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
             + ['b{}'.format(str(args.b))]
+            + ['e{}m{}'.format(args.epoch, "_".join(args.milestones))]
         )
         # if args.nc_loss else 'base'
     )
