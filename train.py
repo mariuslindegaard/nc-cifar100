@@ -64,6 +64,7 @@ def train(args, net, training_loader, loss_function, optimizer, epoch, writer, w
             loss.item(),
             optimizer.param_groups[0]['lr'],
         ))
+        optimizer.zero_grad()
 
         #update training loss for each iteration
         writer.add_scalar('Train/loss_tot', loss.item(), n_iter)
@@ -172,6 +173,15 @@ def eval_training(args, net, test_loader, training_loader, loss_function,
         tb_writer.add_scalar('Test/Accuracy', correct.float() / len(test_loader.dataset), epoch)
         tb_writer.add_scalar('Test/Loss_avg pred', pred_loss / len(test_loader.dataset), epoch)
 
+        if epoch < 5 or epoch % 5 == 0:
+            train_lc_acc, test_lc_acc = nc_utils.embedding_classifier_accuracy(
+                net, embedding_class_means, training_loader, test_loader
+            )
+            for layer_name in train_lc_acc.keys():
+                tb_writer.add_scalar('Train/LinClass_acc {}'.format(layer_name), train_lc_acc[layer_name], epoch)
+                tb_writer.add_scalar('Test/LinClass_acc {}'.format(layer_name), test_lc_acc[layer_name], epoch)
+
+
         # Get NCC accuracies
         train_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, training_loader)
         test_ncc_acc = nc_utils.nearest_class_classifier_accuracy(net, embedding_class_means, test_loader)
@@ -221,7 +231,7 @@ def main(args):
             + ['predl_{}'.format(args.pred_loss)]
             + ['ncl_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
             + ['b{}'.format(str(args.b))]
-            + ['e{}m{}'.format(args.epochs, "_".join(str(args.milestones)))]
+            + ['e{}m{}'.format(args.epochs, "_".join(map(str, args.milestones)))]
         )
         # if args.nc_loss else 'base'
     )
