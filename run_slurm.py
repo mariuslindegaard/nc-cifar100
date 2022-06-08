@@ -7,7 +7,7 @@ import itertools
 
 from typing import List, Dict, Iterable
 
-PROJECT_ROOT = "/om/user/lindegrd/nc_cifar100/"
+PROJECT_ROOT = "/om2/user/lindegrd/nc_cifar100/"
 CONFIGS_PATH_BASE = os.path.join(PROJECT_ROOT, "slurm/conf/")
 JOB_SCRIPT_STUMP = \
 """#!/bin/bash
@@ -39,7 +39,7 @@ class Args:
     milestones: Iterable[int] = (60, 120, 160)
 
 
-def get_command(args, python_path='python3', exec_path='/om/user/lindegrd/nc_cifar100/main.py'):
+def get_command(args, python_path='python3', exec_path=os.path.join(PROJECT_ROOT, 'main.py')):
     return "{} {} {}".format(python_path, exec_path, get_args_str(args))
 
 
