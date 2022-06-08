@@ -221,7 +221,7 @@ def main(args):
             + ['predl_{}'.format(args.pred_loss)]
             + ['ncl_{}_{}'.format(layer_name, weight) for layer_name, weight in args.nc_loss.items()]
             + ['b{}'.format(str(args.b))]
-            + ['e{}m{}'.format(args.epoch, "_".join(args.milestones))]
+            + ['e{}m{}'.format(args.epochs, "_".join(str(args.milestones)))]
         )
         # if args.nc_loss else 'base'
     )
@@ -275,7 +275,7 @@ def main(args):
 
         resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder))
 
-    pbar_epoch = tqdm.tqdm(range(1, args.epoch + 1), position=0, leave=True, ncols=75)
+    pbar_epoch = tqdm.tqdm(range(1, args.epochs + 1), position=0, leave=True, ncols=75)
     for epoch in pbar_epoch:
         if epoch > args.warm:
             train_scheduler.step(epoch)
@@ -291,7 +291,7 @@ def main(args):
                             pbar=pbar_epoch, embedding_class_means=embedding_class_means)
 
         #start to save best performance model after learning rate decay to 0.01
-        if epoch > settings.MILESTONES[1] and best_acc < acc:
+        if epoch > args.milestones[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
             if args.verbose:
                 print('saving weights file to {}'.format(weights_path))
