@@ -19,13 +19,15 @@ CIFAR100_TRAIN_STD = (0.2673342858792401, 0.2564384629170883, 0.2761504713256840
 CHECKPOINT_PATH = 'checkpoint'
 
 #total training epoches
-EPOCH = 200
-MILESTONES = [60, 120, 160]
+# EPOCH = 200
+# MILESTONES = [60, 120, 160]
 
 #initial learning rate
 #INIT_LR = 0.1
 
-DATE_FORMAT = '%A_%d_%B_%Y_%Hh_%Mm_%Ss'
+# DATE_FORMAT = '%A_%d_%B_%Y_%Hh_%Mm_%Ss'
+# DATE_FORMAT = '%Y-%m-%dT%H:%M:%S'
+DATE_FORMAT = 'W%V-%uT%H:%M:%S.%f'
 #time of we run the script
 TIME_NOW = datetime.now().strftime(DATE_FORMAT)
 
