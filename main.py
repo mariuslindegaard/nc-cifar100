@@ -1,24 +1,12 @@
 import train
 import dataclasses as dc
 from typing import Dict
-
 import warnings
 import time
 
 import argparse
 
-@dc.dataclass
-class Args:
-    net: str  # What nnet to use
-    gpu: bool = False  # dc.field(default_factory=lambda: False)  # Whether to use GPU
-    b: int = 2048  # Batch size
-    warm: int = 1  # How many epochs to warm up for
-    lr: float = 0.1  # Learning rate
-    resume: bool = False  # Whether to resume training
-    verbose: bool = False  # Print verbose debug
-    nc_loss: Dict[str, float] = dc.field(default_factory=dict)  # Layers to do nc-loss on. Layername maps to weighting
-    pred_loss: float = 1  # Weighting of prediction loss
-    cifar10: bool = False  # Whether to use cifar10 instead of cifar100
+from run_slurm import Args
 
 
 def main(debug=True):
