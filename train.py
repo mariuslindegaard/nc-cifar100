@@ -211,7 +211,7 @@ def main(args):
     pred_loss_func = nn.CrossEntropyLoss()
     loss_function: MultipleCriterions = Criterions.get_CDNV_criterion(args.nc_loss, prediction_loss=pred_loss_func, prediction_weighting=args.pred_loss)
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
+    train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
 
@@ -274,7 +274,7 @@ def main(args):
 
         resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, subfolder, recent_folder))
 
-    pbar_epoch = tqdm.tqdm(range(1, settings.EPOCH + 1), position=0, leave=True, ncols=75)
+    pbar_epoch = tqdm.tqdm(range(1, args.epoch + 1), position=0, leave=True, ncols=75)
     for epoch in pbar_epoch:
         if epoch > args.warm:
             train_scheduler.step(epoch)
@@ -321,6 +321,8 @@ if __name__ == '__main__':
     parser.add_argument('-nc_loss', action='append', nargs=2, default=[], help='Layers to do nc-loss on. Takes "layername loss_factor"')
     parser.add_argument('-pred_loss', type=float, default=1, help='Weighting of prediction loss.')
     parser.add_argument('-cifar10', action='store_true', default=False, help='Use cifar10 instead of cifar100')
+    parser.add_argument('-epochs', type=int, default=200, help="Number of train epochs")
+    parser.add_argument('-milestones', type=int, default=(60, 120, 160), nargs='*', help='Milestones on when to reduce lr')
     _args = parser.parse_args()
     _args.nc_loss = {layername: float(loss_weight) for layername, loss_weight in _args.nc_loss}
     main(_args)
