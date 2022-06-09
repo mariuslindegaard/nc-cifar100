@@ -73,7 +73,7 @@ def nearest_class_classifier_accuracy(model: torch.nn.Module, class_means: Dict[
 def embedding_classifier_accuracy(model: torch.nn.Module, class_means: Dict[Hashable, torch.Tensor],
                                   train_data_loader: DataLoader, test_data_loader: DataLoader,
                                   pbar_desc: str = 'LinClass: ', train_epochs: int = 2, init_class_means: bool = False,
-                                  lr=0.1
+                                  lr=10
                                   ):
     if len(class_means) == 0:
         return {}
