@@ -15,11 +15,12 @@ JOB_SCRIPT_STUMP = \
 source ~/.conda_init
 conda activate nc
 
-/bin/false
-while [ $? -ne 0 ]; do
-    echo "~~~ RUNNING EXPERIMENT! ~~~"
-    python3 {} {}
-done
+
+# /bin/false
+# while [ $? -ne 0 ]; do
+#     echo "~~~ RUNNING EXPERIMENT! ~~~"
+# done
+python3 {} {}
 """
 
 
